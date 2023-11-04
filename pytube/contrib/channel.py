@@ -144,58 +144,29 @@ class Channel(Playlist):
         :returns: Tuple containing a list of up to 100 video watch ids and
             a continuation token, if more videos are available
         """
-        initial_data = json.loads(raw_json)
+        loaded_json = json.loads(raw_json)
         # this is the json tree structure, if the json was extracted from
         # html
         try:
-            videos = initial_data["contents"][
-                "twoColumnBrowseResultsRenderer"][
-                "tabs"][1]["tabRenderer"]["content"][
-                "sectionListRenderer"]["contents"][0][
-                "itemSectionRenderer"]["contents"][0][
-                "gridRenderer"]["items"]
+            base_data = loaded_json["contents"]["twoColumnBrowseResultsRenderer"]["tabs"][1]["tabRenderer"]["content"]["richGridRenderer"]
+            videos = [base_data["contents"][index]["richItemRenderer"]["content"]["videoRenderer"]["videoId"] for index in range(len(base_data["contents"]) - 1)]
         except (KeyError, IndexError, TypeError):
             try:
                 # this is the json tree structure, if the json was directly sent
                 # by the server in a continuation response
-                important_content = initial_data[1]['response']['onResponseReceivedActions'][
-                    0
-                ]['appendContinuationItemsAction']['continuationItems']
-                videos = important_content
-            except (KeyError, IndexError, TypeError):
-                try:
-                    # this is the json tree structure, if the json was directly sent
-                    # by the server in a continuation response
-                    # no longer a list and no longer has the "response" key
-                    important_content = initial_data['onResponseReceivedActions'][0][
-                        'appendContinuationItemsAction']['continuationItems']
-                    videos = important_content
-                except (KeyError, IndexError, TypeError) as p:
-                    logger.info(p)
-                    return [], None
+                base_data = loaded_json['onResponseReceivedActions'][0]['appendContinuationItemsAction']['continuationItems']
+                videos = [base_data[index]["richItemRenderer"]["content"]["videoRenderer"]["videoId"] for index in range(len(base_data) - 1)]
+            except (KeyError, IndexError, TypeError) as e:
+                logger.info(e)
+                return [], None
 
         try:
-            continuation = videos[-1]['continuationItemRenderer'][
-                'continuationEndpoint'
-            ]['continuationCommand']['token']
-            videos = videos[:-1]
+          if type(base_data) is list:
+            continuation = base_data[-1]['continuationItemRenderer']['continuationEndpoint']['continuationCommand']['token']
+          else:
+            continuation = base_data["contents"][-1]['continuationItemRenderer']['continuationEndpoint']['continuationCommand']['token']
         except (KeyError, IndexError):
             # if there is an error, no continuation is available
             continuation = None
-
-        # remove duplicates
-        return (
-            uniqueify(
-                list(
-                    # only extract the video ids from the video data
-                    map(
-                        lambda x: (
-                            f"/watch?v="
-                            f"{x['gridVideoRenderer']['videoId']}"
-                        ),
-                        videos
-                    )
-                ),
-            ),
-            continuation,
-        )
+            
+        return (["/watch?v=" + video_id for video_id in set(videos)], continuation,)
